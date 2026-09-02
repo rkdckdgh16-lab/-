@@ -1,0 +1,6 @@
+{
+  "name": "통상지원팀 통합 대시보드",
+  "description": "품명 및 HS CODE 기반 국가별 관세율, 관세액, 부가가치세 자동 계산 및 FTA 협정세율 비교, 수입 요건사항 통합 관리 대시보드",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
