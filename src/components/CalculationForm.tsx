@@ -597,9 +597,11 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
           >
             <option value="CIF">CIF (운임·보험료 포함 과세가격)</option>
             <option value="FOB">FOB (본선인도가격 + 운임 가산)</option>
-            <option value="EXW">EXW (공장인도가격 + 내륙/해상 가산)</option>
             <option value="CFR">CFR (운임포함 + 보험료 가산)</option>
-            <option value="DAP">DAP (도착지인도)</option>
+            <option value="DAP">DAP (도착지인도조건)</option>
+            <option value="DDP">DDP (관세지급반입인도조건)</option>
+            <option value="FCA">FCA (운송인인도조건)</option>
+            <option value="EXW">EXW (공장인도가격 + 내륙/해상 가산)</option>
           </select>
         </div>
 
@@ -669,8 +671,8 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
           </p>
         </div>
 
-        {/* 비-CIF 조건일 때 국제운임 및 보험료 입력란 */}
-        {input.incoterms !== 'CIF' && (
+        {/* 비-CIF/DDP 조건일 때 국제운임 및 보험료 입력란 */}
+        {input.incoterms !== 'CIF' && input.incoterms !== 'DDP' && (
           <div className="md:col-span-2 lg:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-amber-50/60 p-3 rounded border border-amber-200">
             <div>
               <label className="block text-xs font-bold text-amber-900 uppercase mb-1">
@@ -704,6 +706,21 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
                 className="w-full border border-amber-300 rounded px-3.5 py-2 bg-white text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 outline-none font-bold"
                 placeholder="보험료액 입력"
               />
+            </div>
+          </div>
+        )}
+
+        {/* DDP(관세지급반입인도조건) 안내 배너 */}
+        {input.incoterms === 'DDP' && (
+          <div className="md:col-span-2 lg:col-span-4 bg-emerald-50/90 border border-emerald-300 rounded-lg p-3 text-xs text-emerald-950 flex items-start gap-2.5">
+            <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded font-bold text-[10px] shrink-0 mt-0.5">
+              DDP 인도조건
+            </span>
+            <div className="space-y-0.5">
+              <p className="font-bold">DDP (관세지급반입인도조건, Delivered Duty Paid)</p>
+              <p className="text-emerald-800 leading-relaxed text-[11px]">
+                매도인(수출자)이 지정목적지까지 운송하여 <strong>수입통관을 완료하고 관세·부가가치세를 포함한 제세공과금을 모두 납부한 상태</strong>로 매수인에게 인도하는 조건입니다. 계약단가에 국제운임, 적하보험료 및 수입세액이 이미 포함되어 있어 별도의 운임 가산이 발생하지 않습니다.
+              </p>
             </div>
           </div>
         )}

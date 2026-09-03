@@ -98,7 +98,7 @@ export interface CalculationInput {
   quantity: number; // 수량
   unitPrice: number; // 단가
   currency: string; // 결제 통화 (USD, KRW, EUR, CNY, JPY 등)
-  incoterms: 'FOB' | 'CIF' | 'EXW' | 'CFR' | 'DAP';
+  incoterms: 'FOB' | 'CIF' | 'EXW' | 'CFR' | 'DAP' | 'DDP' | 'FCA';
   freightCost: number; // 운임 (선택)
   insuranceCost: number; // 보험료 (선택)
   exchangeRate: number; // [환율]

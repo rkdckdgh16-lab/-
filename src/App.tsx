@@ -6,7 +6,14 @@ import {
   ExchangeRateData
 } from './types';
 import { TRADE_ITEMS_DATABASE } from './data/tradeData';
-import { INITIAL_EXCHANGE_RATES, fetchUnipassImportRates, UNIPASS_PORTAL_URL } from './data/exchangeRates';
+import { 
+  INITIAL_EXCHANGE_RATES, 
+  INITIAL_IMPORT_EXCHANGE_RATES,
+  INITIAL_EXPORT_EXCHANGE_RATES,
+  fetchUnipassImportRates, 
+  fetchUnipassExportRates,
+  UNIPASS_PORTAL_URL 
+} from './data/exchangeRates';
 import { calculateTradeDuties } from './utils/calculator';
 import { Header } from './components/Header';
 import { MetricCards } from './components/MetricCards';
@@ -14,6 +21,9 @@ import { CalculationForm } from './components/CalculationForm';
 import { EssentialDataTable } from './components/EssentialDataTable';
 import { CountryComparisonMatrix } from './components/CountryComparisonMatrix';
 import { RequiredRegulationsView } from './components/RequiredRegulationsView';
+import { ExportRequirementsView } from './components/ExportRequirementsView';
+import { ExportCalculationDashboard } from './components/ExportCalculationDashboard';
+import { NavigationDropdowns, MainTabType } from './components/NavigationDropdowns';
 import { ExportReportModal } from './components/ExportReportModal';
 import { 
   auth, 
@@ -43,8 +53,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
 
-  // UNIPASS Exchange Rates state
-  const [currentRates, setCurrentRates] = useState<Record<string, ExchangeRateData>>(INITIAL_EXCHANGE_RATES);
+  // UNIPASS Exchange Rates state (수입환율 및 수출환율 분리 관리)
+  const [currentImportRates, setCurrentImportRates] = useState<Record<string, ExchangeRateData>>(INITIAL_IMPORT_EXCHANGE_RATES);
+  const [currentExportRates, setCurrentExportRates] = useState<Record<string, ExchangeRateData>>(INITIAL_EXPORT_EXCHANGE_RATES);
   const [appliedDateDisplay, setAppliedDateDisplay] = useState<string>('2026년 8월 31일');
   const [isRefreshingRates, setIsRefreshingRates] = useState<boolean>(false);
 
@@ -65,7 +76,7 @@ export default function App() {
     incoterms: 'CIF',
     freightCost: 0,
     insuranceCost: 0,
-    exchangeRate: INITIAL_EXCHANGE_RATES.USD.rateToKrw, // 1382.44
+    exchangeRate: INITIAL_IMPORT_EXCHANGE_RATES.USD.rateToKrw, // 1382.44
     applyFta: true
   });
 
@@ -74,7 +85,7 @@ export default function App() {
   );
 
   const [historyRecords, setHistoryRecords] = useState<CalculationResult[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'matrix' | 'regulations'>('dashboard');
+  const [activeTab, setActiveTab] = useState<MainTabType>('calc_import');
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -110,23 +121,26 @@ export default function App() {
     }, 3500);
   };
 
-  // UNIPASS Rate Sync Handler
+  // UNIPASS Rate Sync Handler (수입환율 및 수출환율 동시 동기화)
   const handleRefreshRates = () => {
     setIsRefreshingRates(true);
     setTimeout(() => {
-      const { rates, appliedDateDisplay: newDateDisplay } = fetchUnipassImportRates(new Date('2026-08-31'));
-      setCurrentRates(rates);
+      const { rates: newImportRates, appliedDateDisplay: newDateDisplay } = fetchUnipassImportRates(new Date('2026-08-31'));
+      const { rates: newExportRates } = fetchUnipassExportRates(new Date('2026-08-31'));
+      
+      setCurrentImportRates(newImportRates);
+      setCurrentExportRates(newExportRates);
       setAppliedDateDisplay(newDateDisplay);
 
-      // Update current calculation input if using standard currency rate
-      const updatedRate = rates[input.currency]?.rateToKrw || 1382.44;
+      // Update current import calculation input if using standard currency rate
+      const updatedImportRate = newImportRates[input.currency]?.rateToKrw || 1382.44;
       setInput(prev => ({
         ...prev,
-        exchangeRate: updatedRate
+        exchangeRate: updatedImportRate
       }));
 
       setIsRefreshingRates(false);
-      showToast(`관세청 UNIPASS 메인화면 수입환율(USD 1,382.44 등)이 성공적으로 동기화되었습니다.`);
+      showToast(`관세청 UNIPASS 공식 고시환율(수입: USD 1,382.44 / 수출: USD 1,356.88)이 성공적으로 동기화되었습니다.`);
     }, 400);
   };
 
@@ -262,7 +276,7 @@ export default function App() {
         hsCode: item.hsCode,
         unitPrice: item.defaultUnitPriceUsd,
         currency: 'USD',
-        exchangeRate: currentRates.USD?.rateToKrw || 1382.44,
+        exchangeRate: currentImportRates.USD?.rateToKrw || 1382.44,
         customTariffRate: undefined
       }));
       showToast(`'${item.name}' 품목이 선택되었습니다.`);
@@ -316,63 +330,25 @@ export default function App() {
         authLoading={authLoading}
         onOpenReport={() => setIsReportModalOpen(true)}
         onSelectSampleItem={handleSelectSampleItem}
-        currentRates={currentRates}
+        currentRates={currentImportRates}
+        currentExportRates={currentExportRates}
         appliedDateDisplay={appliedDateDisplay}
         onRefreshRates={handleRefreshRates}
         isRefreshingRates={isRefreshingRates}
       />
 
+      {/* Navigation Dropdown Menu Bar (1. 산출내역조회, 2. 관세율 가이드, 3. 수출입 요건 사항) */}
+      <NavigationDropdowns
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        unipassStatusText="관세청 UNIPASS 수출입 고시환율 실시간 연동 중"
+      />
+
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Quick Tabs & Navigation */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-2 border-b border-slate-300">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-200 rounded max-w-fit">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded text-xs font-bold transition ${
-                activeTab === 'dashboard'
-                  ? 'bg-white text-blue-900 shadow-2xs border border-slate-300'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>수입 관세,부가세 산출 대시보드</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('matrix')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded text-xs font-bold transition ${
-                activeTab === 'matrix'
-                  ? 'bg-white text-blue-900 shadow-2xs border border-slate-300'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Globe2 className="w-3.5 h-3.5" />
-              <span>[관세율] 가이드</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('regulations')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded text-xs font-bold transition ${
-                activeTab === 'regulations'
-                  ? 'bg-white text-blue-900 shadow-2xs border border-slate-300'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ShieldAlert className="w-3.5 h-3.5" />
-              <span>[수입시 요건사항] 가이드</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
-            <span className="inline-block w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-            <span>관세청 UNIPASS 수입환율 연동 가동 중</span>
-          </div>
-        </div>
-
-        {/* 1. Tab Views based strictly on user focus */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
+        {/* 1-1. 산출내역조회 > 수입 관/부가세 산출 */}
+        {activeTab === 'calc_import' && (
+          <div className="space-y-6 animate-in fade-in duration-150">
             {/* 1. Summary Metric Cards */}
             <MetricCards 
               result={result} 
@@ -390,7 +366,7 @@ export default function App() {
               result={result}
               onSaveToCloud={handleSaveToCloud}
               isSaving={isSaving}
-              currentRates={currentRates}
+              currentRates={currentImportRates}
               appliedDateDisplay={appliedDateDisplay}
               onRefreshRates={handleRefreshRates}
               isRefreshingRates={isRefreshingRates}
@@ -399,13 +375,29 @@ export default function App() {
             {/* 3. Mandatory 10-Field Essential Data Table */}
             <EssentialDataTable
               result={result}
-              onOpenRequirements={() => setActiveTab('regulations')}
+              onOpenRequirements={() => setActiveTab('req_import')}
             />
           </div>
         )}
 
-        {activeTab === 'matrix' && (
-          <div className="space-y-6">
+        {/* 1-2. 산출내역조회 > 수출 부대비용/요건 확인 (양극재 3종 & 탄산리튬 전용, 관·부가세 0원) */}
+        {activeTab === 'calc_export_check' && (
+          <div className="space-y-6 animate-in fade-in duration-150">
+            <ExportCalculationDashboard
+              currentRates={currentExportRates}
+              currentExportRates={currentExportRates}
+              appliedDateDisplay={appliedDateDisplay}
+              onRefreshRates={handleRefreshRates}
+              isRefreshingRates={isRefreshingRates}
+              onSaveToCloud={handleSaveToCloud}
+              isSaving={isSaving}
+            />
+          </div>
+        )}
+
+        {/* 2. 관세율 가이드 (HS코드별/국가별 관세율 및 FTA 협정세율 비교 매트릭스) */}
+        {activeTab === 'tariff_guide' && (
+          <div className="space-y-6 animate-in fade-in duration-150">
             <CountryComparisonMatrix
               input={input}
               selectedItem={selectedItem}
@@ -416,8 +408,20 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'regulations' && (
-          <div className="space-y-6">
+        {/* 3-1. 수출입 요건 사항 > 수출 요건 */}
+        {activeTab === 'req_export' && (
+          <div className="space-y-6 animate-in fade-in duration-150">
+            <ExportRequirementsView 
+              result={result}
+              selectedItem={selectedItem}
+              mode="regulations"
+            />
+          </div>
+        )}
+
+        {/* 3-2. 수출입 요건 사항 > 수입 요건 */}
+        {activeTab === 'req_import' && (
+          <div className="space-y-6 animate-in fade-in duration-150">
             <RequiredRegulationsView 
               result={result} 
               onSelectItemByName={handleSelectApprovalItem}

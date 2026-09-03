@@ -143,8 +143,10 @@ export function calculateTradeDuties(
   const totalInsuranceForeign = insuranceCost;
 
   // CIF Value (과세가격)
+  // FOB, EXW, CFR, FCA 조건은 운임/보험료가 미포함되어 가산 산출
+  // CIF, DAP, DDP 조건은 계약금액에 운임·보험료(DDP의 경우 수입통관 및 제세 포함)가 포함되어 별도 가산 불필요
   let cifValueForeign = rawItemValueForeign;
-  if (incoterms === 'FOB' || incoterms === 'EXW' || incoterms === 'CFR') {
+  if (incoterms === 'FOB' || incoterms === 'EXW' || incoterms === 'CFR' || incoterms === 'FCA') {
     cifValueForeign = rawItemValueForeign + totalFreightForeign + totalInsuranceForeign;
   }
 
