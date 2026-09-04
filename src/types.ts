@@ -150,6 +150,7 @@ export interface CalculationResult {
   // 2026년 요건승인 등록 현황 및 화학물질 명세
   approvalStatus?: {
     isRegistered: boolean;
+    isChemicalRegulation?: boolean; // 화평법/화관법 등 화학물질 관리법 해당 여부
     hasBmMatch?: boolean;
     hasEmMatch?: boolean;
     hasBmChemicalSpecMatch?: boolean;

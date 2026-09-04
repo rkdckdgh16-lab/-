@@ -39,6 +39,7 @@ import {
   searchBmChemicalSpecDatabase,
   BmChemicalSpecItem
 } from '../data/bmChemicalSpecData';
+import { isSubjectToChemicalLaws } from '../utils/calculator';
 
 interface RequiredRegulationsViewProps {
   result: CalculationResult;
@@ -49,11 +50,29 @@ type ReqTabType = 'customs' | 'exportImport' | 'integrated' | 'guide' | 'approva
 
 export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = ({ result, onSelectItemByName }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
-  const [activeSubTab, setActiveSubTab] = useState<ReqTabType>('approvalLedger');
+  
+  // 화평법/화관법 등 화학물질 관리법 적용 품목 여부 판별
+  const isChemicalLawItem = useMemo(() => {
+    return result.approvalStatus?.isChemicalRegulation ?? isSubjectToChemicalLaws(
+      result.hsCode,
+      result.importRegulationsFull?.applicableLaws,
+      result.approvalStatus,
+      result.itemName
+    );
+  }, [result]);
+
+  const [activeSubTab, setActiveSubTab] = useState<ReqTabType>(isChemicalLawItem ? 'approvalLedger' : 'customs');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
   const [emSearchKeyword, setEmSearchKeyword] = useState<string>('');
   const [bmSpecSearchKeyword, setBmSpecSearchKeyword] = useState<string>('');
   const [copiedApproval, setCopiedApproval] = useState<string | null>(null);
+
+  // 품목 변경 시 화학물질 대상 여부에 따라 탭 기본값 자동 동기화
+  React.useEffect(() => {
+    if (!isChemicalLawItem && activeSubTab === 'approvalLedger') {
+      setActiveSubTab('customs');
+    }
+  }, [isChemicalLawItem]);
   
   const reg = result.importRegulationsFull;
   const origin = result.originCriteria;
@@ -94,13 +113,13 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 mb-5 border-b border-slate-200">
         <div className="flex items-start gap-3">
           <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold flex-shrink-0 mt-0.5 ${
-            currentApprovalStatus.isRegistered 
+            isChemicalLawItem && currentApprovalStatus.isRegistered 
               ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' 
               : reg.isControlled 
                 ? 'bg-amber-100 text-amber-900 border border-amber-200' 
                 : 'bg-blue-100 text-blue-900 border border-blue-200'
           }`}>
-            {currentApprovalStatus.isRegistered ? (
+            {isChemicalLawItem && currentApprovalStatus.isRegistered ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-700" />
             ) : reg.isControlled ? (
               <ShieldAlert className="w-5 h-5 text-amber-700" />
@@ -111,31 +130,47 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-slate-900">
-                [수입시 요건사항] 및 2026년 요건승인 등록 현황 대시보드
+                {isChemicalLawItem
+                  ? '[수입시 요건사항] 및 2026년 요건승인 등록 현황 대시보드'
+                  : '[수입시 요건사항] 통관 요건 및 법령 대시보드'}
               </h3>
               
-              {/* 등록 여부 뱃지 */}
-              {currentApprovalStatus.isRegistered ? (
-                <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>
-                    ✅ 2026년 요건승인 등록 완료
-                    {currentApprovalStatus.hasBmMatch && currentApprovalStatus.hasEmMatch && (
-                      <> (BM: {currentApprovalStatus.allMatches[0]?.approvalNumber || currentApprovalStatus.approvalData?.approvalNumber} / EM: {currentApprovalStatus.emApprovalData?.approvalNumber})</>
-                    )}
-                    {currentApprovalStatus.hasBmMatch && !currentApprovalStatus.hasEmMatch && (
-                      <> (BM: {currentApprovalStatus.approvalData?.approvalNumber})</>
-                    )}
-                    {!currentApprovalStatus.hasBmMatch && currentApprovalStatus.hasEmMatch && (
-                      <> (EM: {currentApprovalStatus.emApprovalData?.approvalNumber})</>
-                    )}
+              {/* 🎯 화평법/화관법 등 화학물질 관리법일 때만 2026년 요건승인 등록 여부 뱃지 노출 */}
+              {isChemicalLawItem ? (
+                currentApprovalStatus.isRegistered ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>
+                      ✅ 2026년 요건승인 등록 완료
+                      {currentApprovalStatus.hasBmMatch && currentApprovalStatus.hasEmMatch && (
+                        <> (BM: {currentApprovalStatus.allMatches[0]?.approvalNumber || currentApprovalStatus.approvalData?.approvalNumber} / EM: {currentApprovalStatus.emApprovalData?.approvalNumber})</>
+                      )}
+                      {currentApprovalStatus.hasBmMatch && !currentApprovalStatus.hasEmMatch && (
+                        <> (BM: {currentApprovalStatus.approvalData?.approvalNumber})</>
+                      )}
+                      {!currentApprovalStatus.hasBmMatch && currentApprovalStatus.hasEmMatch && (
+                        <> (EM: {currentApprovalStatus.emApprovalData?.approvalNumber})</>
+                      )}
+                    </span>
                   </span>
-                </span>
+                ) : (
+                  <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-rose-100 text-rose-900 border border-rose-300 flex items-center gap-1">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>⚠️ 2026년 요건 미등록 품목 (화평법·화관법 사전승인/신고 필요)</span>
+                  </span>
+                )
               ) : (
-                <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-rose-100 text-rose-900 border border-rose-300 flex items-center gap-1">
-                  <XCircle className="w-3.5 h-3.5 text-rose-600" />
-                  <span>⚠️ 2026년 요건 미등록 품목 (수입 전 사전승인/신고 필요)</span>
-                </span>
+                reg.isControlled ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+                    <span>🔍 세관장확인대상 (개별 법령 요건확인)</span>
+                  </span>
+                ) : (
+                  <span className="text-xs px-2.5 py-0.5 rounded font-bold bg-blue-100 text-blue-900 border border-blue-300 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                    <span>일반통관 (세관장확인 비대상)</span>
+                  </span>
+                )
               )}
             </div>
             <p className="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-2">
@@ -172,13 +207,14 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
         </div>
       </div>
 
-      {/* 🌟 2. 품명 입력 시 요건승인 등록 여부 즉시 판별 카드 (High Priority Banner) */}
+      {/* 🌟 2. 품명 입력 시 요건승인 등록 여부 즉시 판별 카드 (화평법/화관법 등 화학물질 관리법일 때만 화학 요건 배너 표시) */}
       {isExpanded && (
         <div className="mb-5 space-y-3">
-          {currentApprovalStatus.isRegistered ? (
-            <>
-              {/* BM 등록 품목 카드 (BM 매칭 시 표시) */}
-              {currentApprovalStatus.hasBmMatch && currentApprovalStatus.approvalData && (
+          {isChemicalLawItem ? (
+            currentApprovalStatus.isRegistered ? (
+              <>
+                {/* BM 등록 품목 카드 (BM 매칭 시 표시) */}
+                {currentApprovalStatus.hasBmMatch && currentApprovalStatus.approvalData && (
                 <div className="bg-emerald-50/90 border-2 border-emerald-500/40 rounded-xl p-4 shadow-xs">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-emerald-200/80">
                     <div className="flex items-center gap-2.5">
@@ -350,7 +386,7 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-rose-950 flex items-center gap-2">
-                    <span>2026년 요건승인 목록 미등록 품목</span>
+                    <span>2026년 요건승인 목록 미등록 품목 (화평법·화관법 대상)</span>
                     <span className="text-[11px] font-normal text-rose-700 bg-rose-100 px-2 py-0.5 rounded border border-rose-200">
                       사전 요건 확인 대상
                     </span>
@@ -368,7 +404,53 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
                 2026년 등록 대장 확인 →
               </button>
             </div>
-          )}
+          )
+        ) : (
+          // 비화학물질 품목(커피, 식품, 스마트폰, 일반공산품 등)인 경우 맞춤형 안내 배너
+          reg.isControlled ? (
+            <div className="bg-amber-50/90 border-2 border-amber-300 rounded-xl p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-600 text-white rounded-lg font-bold shadow-xs mt-0.5">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
+                    <span>개별 법령 세관장확인 대상 품목</span>
+                    <span className="text-[11px] font-normal text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
+                      수입요건 구비 필요
+                    </span>
+                  </h4>
+                  <p className="text-xs text-amber-900 mt-1 leading-relaxed">
+                    해당 품목(<strong>{result.itemName}</strong>)은 <strong>{reg.applicableLaws.join(', ')}</strong>에 따른 요건확인 대상입니다. 통관 전 소관 기관({reg.inspectionAgency || '소관 기관'})의 검사·승인 확인서류를 구비하여 세관 수입신고서에 연계하여야 합니다.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('customs')}
+                className="px-3.5 py-2 bg-amber-900 hover:bg-amber-800 text-white rounded-lg text-xs font-bold transition whitespace-nowrap self-start md:self-auto shrink-0 shadow-2xs"
+              >
+                세관장확인 요건 보기 →
+              </button>
+            </div>
+          ) : (
+            <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-4 shadow-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-600 text-white rounded-lg font-bold shadow-xs">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-blue-950">
+                    일반통관 대상 품목 (세관장확인 비대상)
+                  </h4>
+                  <p className="text-xs text-blue-800 mt-0.5">
+                    해당 품목(<strong>{result.itemName}</strong>)은 별도의 사전 요건확인 절차 없이 관세법 및 대외무역법에 따른 일반 수입신고 절차로 신속 통관이 가능합니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )
+        )}
         </div>
       )}
 
@@ -385,7 +467,7 @@ export const RequiredRegulationsView: React.FC<RequiredRegulationsViewProps> = (
               }`}
             >
               <Database className="w-3.5 h-3.5 text-amber-300" />
-              <span>📋 2026년 요건승인 등록 품목 대장</span>
+              <span>📋 2026년 요건승인 대장 (화학물질)</span>
               <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] ${
                 activeSubTab === 'approvalLedger' ? 'bg-amber-400 text-blue-950 font-black' : 'bg-slate-200 text-slate-800'
               }`}>

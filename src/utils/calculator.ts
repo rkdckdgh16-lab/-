@@ -5,6 +5,67 @@ import { getClipTariffSchedule, getKoreaBilateralFta, determinePriorityTariffRat
 import { getClipImportRegulations } from '../data/clipImportRequirements';
 import { checkItemApprovalStatus } from '../data/registeredApprovalData';
 
+/**
+ * 화평법(화학물질의 등록 및 평가 등에 관한 법률), 화관법(화학물질관리법) 등
+ * 화학물질 관리 법령 적용 대상 여부를 정밀 판별
+ */
+export function isSubjectToChemicalLaws(
+  hsCode?: string,
+  applicableLaws?: string[],
+  approvalCheck?: { isRegistered?: boolean; hasBmMatch?: boolean; hasEmMatch?: boolean; hasBmChemicalSpecMatch?: boolean },
+  itemName?: string
+): boolean {
+  // 1. 이미 2026년 요건승인 대장(BM 30선, EM 7선, BM화학물질명세)에 등록되어 있는 경우 -> 화학물질 관리 대상 100%
+  if (approvalCheck?.isRegistered || approvalCheck?.hasBmMatch || approvalCheck?.hasEmMatch || approvalCheck?.hasBmChemicalSpecMatch) {
+    return true;
+  }
+
+  // 2. 적용 법령(applicableLaws) 중 화학물질 관리 법률(화평법, 화관법 등)이 포함된 경우
+  if (applicableLaws && applicableLaws.length > 0) {
+    const chemicalKeywords = [
+      '화학물질관리법',
+      '화관법',
+      '화학물질의 등록 및 평가',
+      '화평법',
+      '생활화학제품',
+      '살생물제',
+      '유독물',
+      '제한물질',
+      '화학물질',
+      'KCMA',
+      '화학물질관리협회'
+    ];
+    if (applicableLaws.some(law => chemicalKeywords.some(kw => law.includes(kw)))) {
+      return true;
+    }
+  }
+
+  // 3. HS Code 류(Chapter) 판별:
+  // 제28류(무기화학품), 제29류(유기화학품), 제38류(각종 화학제품), 제34류(계면활성제/윤활제), 제32류(안료/염료) 등 화학공업 생산품
+  if (hsCode) {
+    const digits = hsCode.replace(/[^0-9]/g, '');
+    const chapter = digits.slice(0, 2);
+    if (['28', '29', '38', '34', '32', '31', '36'].includes(chapter)) {
+      return true;
+    }
+  }
+
+  // 4. 품목명(itemName) 키워드 판별
+  if (itemName) {
+    const lower = itemName.toLowerCase();
+    const chemKeywords = [
+      '화학', 'chemical', '수산화', '산화물', '황산', '염산', '질산', '리튬', '코발트', 
+      '니켈', '망간', '전구체', '양극재', '음극재', '용매', '솔벤트', '시약', '유기화합물', 
+      '무기화합물', '가소제', '촉매', '모노머', '폴리머', 'ncm', 'precursor', '전해질', '바인더'
+    ];
+    if (chemKeywords.some(kw => lower.includes(kw))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function calculateTradeDuties(
   input: CalculationInput,
   selectedItem?: TradeItem
@@ -196,6 +257,12 @@ export function calculateTradeDuties(
 
   // 2026년 요건승인 등록 여부 판별 (BM 및 EM 동시 판별 + BM 화학물질명세내역)
   const approvalCheck = checkItemApprovalStatus(itemName, hsCode);
+  const isChemicalRegulation = isSubjectToChemicalLaws(
+    hsCode || item?.hsCode,
+    reg.applicableLaws,
+    approvalCheck,
+    itemName || item?.name
+  );
   const primaryApproval = approvalCheck.approvalData;
   const primaryEmApproval = approvalCheck.emApprovalData;
 
@@ -260,6 +327,7 @@ export function calculateTradeDuties(
     originCriteria: item?.originCriteria,
     approvalStatus: {
       isRegistered: approvalCheck.isRegistered,
+      isChemicalRegulation,
       hasBmMatch: approvalCheck.hasBmMatch,
       hasEmMatch: approvalCheck.hasEmMatch,
       hasBmChemicalSpecMatch: approvalCheck.hasBmChemicalSpecMatch,

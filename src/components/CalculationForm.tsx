@@ -3,6 +3,13 @@ import { CalculationInput, TradeItem, ExchangeRateData, CalculationResult } from
 import { TRADE_ITEMS_DATABASE } from '../data/tradeData';
 import { COUNTRIES, INITIAL_EXCHANGE_RATES, UNIPASS_PORTAL_URL } from '../data/exchangeRates';
 import { checkItemApprovalStatus } from '../data/registeredApprovalData';
+import { ClipCommoditySearchModal } from './ClipCommoditySearchModal';
+import { 
+  searchClipCommodities, 
+  convertClipCommodityToTradeItem, 
+  ClipCommodity 
+} from '../data/clipCommodities';
+import { CLIP_PORTAL_URL } from '../data/clipTariffData';
 import { 
   Calculator, 
   Search, 
@@ -18,7 +25,9 @@ import {
   RefreshCw,
   XCircle,
   ShieldAlert,
-  FileCheck
+  FileCheck,
+  ArrowDownToLine,
+  BookOpen
 } from 'lucide-react';
 
 interface CalculationFormProps {
@@ -51,6 +60,12 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('양극재');
   const [customTariffEnabled, setCustomTariffEnabled] = useState(false);
   const [isEditingExchangeRate, setIsEditingExchangeRate] = useState(false);
+
+  // 관세법령정보포털 CLIP 세번·상품검색 모달 및 퀵 검색 상태
+  const [isClipModalOpen, setIsClipModalOpen] = useState(false);
+  const [clipModalInitialQuery, setClipModalInitialQuery] = useState('');
+  const [clipQuickSearch, setClipQuickSearch] = useState('');
+  const [pulledClipNotice, setPulledClipNotice] = useState<string | null>(null);
 
   // 2026년 수입 요건승인 등록 여부 실시간 확인
   const liveApproval = useMemo(() => {
@@ -105,6 +120,13 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
     return matchCategory && matchBasic;
   });
 
+  // CLIP 포털 데이터베이스 실시간 연계 검색 (필터에 없는 품목 탐색)
+  const clipSearchResults = useMemo(() => {
+    const query = searchQuery.trim();
+    if (!query || query.length < 2) return [];
+    return searchClipCommodities(query).slice(0, 6);
+  }, [searchQuery]);
+
   const handleSelectItem = (item: TradeItem) => {
     const defaultCurrency = 'USD';
     const rate = currentRates[defaultCurrency]?.rateToKrw || 1382.44;
@@ -123,6 +145,35 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
     setCustomTariffEnabled(false);
     setShowItemDropdown(false);
     setSearchQuery('');
+  };
+
+  // CLIP 세번·상품검색에서 품목을 견적기로 끌고오기
+  const handleSelectClipCommodity = (tradeItem: TradeItem, commodity: ClipCommodity) => {
+    const defaultCurrency = input.currency || 'USD';
+    const rate = currentRates[defaultCurrency]?.rateToKrw || 1382.44;
+
+    onChangeInput({
+      ...input,
+      itemId: tradeItem.id,
+      itemName: tradeItem.name,
+      hsCode: tradeItem.hsCode,
+      unitPrice: tradeItem.defaultUnitPriceUsd > 0 ? tradeItem.defaultUnitPriceUsd : (input.unitPrice || 100),
+      currency: defaultCurrency,
+      exchangeRate: rate,
+      customTariffRate: undefined // 관세율은 관세청 법정 공식 우선순위(기본/WTO/FTA)로 자동 산출
+    }, tradeItem);
+
+    setCustomTariffEnabled(false);
+    setShowItemDropdown(false);
+    setSearchQuery('');
+    setClipQuickSearch('');
+    setPulledClipNotice(`관세법령정보포털(CLIP)에서 [HS ${commodity.hsCode}] '${commodity.nameKr}' 품목을 견적기에 끌고왔습니다. 법정 공시세율(기본 ${commodity.baseRate}%, WTO ${commodity.wtoRate}%, 한-중 FTA ${commodity.ftaRates.CN?.rate ?? 0}%)이 자동 적용되었습니다.`);
+    setTimeout(() => setPulledClipNotice(null), 8000);
+  };
+
+  const handleOpenClipSearch = (query?: string) => {
+    setClipModalInitialQuery(query || clipQuickSearch || searchQuery || input.itemName || input.hsCode || '');
+    setIsClipModalOpen(true);
   };
 
   const handleCurrencyChange = (curr: string) => {
@@ -178,6 +229,159 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             <span>{isSaving ? '저장 중...' : '계산내역 저장'}</span>
           </button>
+        </div>
+      </div>
+
+      {/* 🔔 CLIP 세번/상품 끌고오기 성공 알림 배너 */}
+      {pulledClipNotice && (
+        <div className="mb-4 p-3.5 bg-emerald-50 border-2 border-emerald-300 rounded-xl text-emerald-950 text-xs font-semibold flex items-center justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-emerald-200 text-emerald-800 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-extrabold text-emerald-900">관세법령정보포털 CLIP 세번·상품 적용 완료</p>
+              <p className="text-[11px] text-emerald-800 mt-0.5">{pulledClipNotice}</p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={() => setPulledClipNotice(null)}
+            className="p-1 rounded hover:bg-emerald-100 text-emerald-700 hover:text-emerald-950 text-xs font-bold shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 🏛️ 관세청 관세법령정보포털(CLIP) 공식 세번·상품검색 연동 배너 (이미지 디자인 구현) */}
+      <div className="mb-5 bg-gradient-to-r from-[#14376c] via-[#1b4382] to-[#1e3a6c] text-white p-4 sm:p-4.5 rounded-xl shadow-sm border border-blue-900">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-blue-200 border border-white/20 shrink-0">
+              <Sparkles className="w-4 h-4 text-emerald-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-black uppercase tracking-wider text-blue-200">
+                  관세청 관세법령정보포털 (CLIP) 연동
+                </span>
+                <span className="text-[10px] bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.2 rounded font-bold">
+                  실시간 세번·상품조회
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm font-bold text-white mt-0.5">
+                필터에 미등록된 품목은 CLIP 세번/상품검색으로 조회하여 견적기에 즉시 끌고올 수 있습니다.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleOpenClipSearch(clipQuickSearch || searchQuery)}
+              className="px-3.5 py-1.5 text-xs font-extrabold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg flex items-center gap-1.5 transition shadow-xs active:scale-98"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>세번·상품검색 팝업</span>
+            </button>
+            <a
+              href={CLIP_PORTAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 text-xs font-bold bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 flex items-center gap-1 transition"
+              title="관세청 CLIP 포털 새창으로 열기"
+            >
+              <span>상세검색</span>
+              <ExternalLink className="w-3 h-3 text-blue-200" />
+            </a>
+          </div>
+        </div>
+
+        {/* Search Bar matching image: [세번·상품검색] [  입력창  ] [🔍 검색] */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <span className="text-xs font-extrabold text-[#1b4382] bg-blue-100/90 px-2 py-0.5 rounded">
+                세번·상품검색
+              </span>
+            </div>
+            <input
+              type="text"
+              value={clipQuickSearch}
+              onChange={(e) => setClipQuickSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleOpenClipSearch(clipQuickSearch);
+                }
+              }}
+              placeholder="HS CODE(예: 8542, 8507, 2204) 또는 품명(반도체, 스마트폰, 와인, 커피 등)"
+              className="w-full pl-28 pr-9 py-2 text-xs sm:text-sm font-medium bg-white text-slate-900 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 border border-blue-300"
+            />
+            {clipQuickSearch && (
+              <button
+                type="button"
+                onClick={() => setClipQuickSearch('')}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs p-1"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => handleOpenClipSearch(clipQuickSearch)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition shrink-0 shadow-xs"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>조회 후 끌고오기</span>
+          </button>
+        </div>
+
+        {/* Quick Service Links Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-white/10 text-[11px] text-blue-200">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-white font-semibold">품목분류 빠른 서비스:</span>
+            <button 
+              type="button" 
+              onClick={() => handleOpenClipSearch('8542')}
+              className="px-2 py-0.5 bg-white/10 hover:bg-white/25 rounded text-white border border-white/10 transition"
+            >
+              반도체(8542)
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleOpenClipSearch('8507')}
+              className="px-2 py-0.5 bg-white/10 hover:bg-white/25 rounded text-white border border-white/10 transition"
+            >
+              배터리(8507)
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleOpenClipSearch('2204')}
+              className="px-2 py-0.5 bg-white/10 hover:bg-white/25 rounded text-white border border-white/10 transition"
+            >
+              와인(2204)
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleOpenClipSearch('3304')}
+              className="px-2 py-0.5 bg-white/10 hover:bg-white/25 rounded text-white border border-white/10 transition"
+            >
+              화장품(3304)
+            </button>
+            <button 
+              type="button" 
+              onClick={() => handleOpenClipSearch('8479')}
+              className="px-2 py-0.5 bg-white/10 hover:bg-white/25 rounded text-white border border-white/10 transition"
+            >
+              제조설비(8479)
+            </button>
+          </div>
+
+          <span className="text-[10px] text-blue-300">
+            * 관세청 공식 관세율표(기본/WTO/FTA) 및 통관요건 자동 연동
+          </span>
         </div>
       </div>
 
@@ -264,7 +468,7 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
                   setShowItemDropdown(true);
                 }}
                 onFocus={() => setShowItemDropdown(true)}
-                placeholder="품명 또는 세부 모델 검색 (예: NCA024-12B, CSG131-13AW, EA15A, NCM, 2841.90)"
+                placeholder="품명 또는 세부 모델 검색 (예: NCA024-12B, 반도체, 스마트폰, 와인, 8542, 2841.90)"
                 className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-300 rounded font-medium focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 transition"
               />
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -277,13 +481,22 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
               <Layers className="w-3.5 h-3.5 text-slate-600" />
               <span>전체 목록 드롭다운</span>
             </button>
+            <button
+              type="button"
+              onClick={() => handleOpenClipSearch(searchQuery)}
+              className="px-3 py-2 text-xs font-bold bg-blue-900 hover:bg-blue-800 text-white rounded flex items-center gap-1.5 transition shrink-0 shadow-xs"
+              title="관세청 CLIP 포털 세번/상품 검색창 열기"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>CLIP 세번조회</span>
+            </button>
           </div>
 
           {/* Preset dropdown list */}
           {showItemDropdown && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-slate-300 shadow-2xl max-h-80 overflow-y-auto z-50 p-2 divide-y divide-slate-100">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-slate-300 shadow-2xl max-h-96 overflow-y-auto z-50 p-2 divide-y divide-slate-100">
               <div className="flex items-center justify-between px-2 py-1.5 text-xs text-slate-700 font-bold bg-slate-100 rounded mb-1">
-                <span>검색 결과 ({filteredItems.length}개 품목)</span>
+                <span>필터 등록 품목 ({filteredItems.length}개)</span>
                 <button 
                   onClick={() => setShowItemDropdown(false)}
                   className="text-slate-600 hover:text-slate-900 font-bold px-1.5 py-0.5 rounded hover:bg-slate-200"
@@ -291,6 +504,8 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
                   닫기 ✕
                 </button>
               </div>
+
+              {/* Local Database Items */}
               {filteredItems.map(item => {
                 const matchedModels = getMatchedSubModels(item, searchQuery);
                 return (
@@ -324,11 +539,100 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
                   </div>
                 );
               })}
-              {filteredItems.length === 0 && (
-                <div className="p-4 text-center text-xs text-slate-400">
-                  일치하는 품목이 없습니다. 아래 입력란에 직접 품명과 HS CODE를 기입하실 수 있습니다.
+
+              {/* CLIP 연동 실시간 검색 결과 (필터에 없거나 추가 매칭되는 CLIP 상품들) */}
+              {clipSearchResults.length > 0 && (
+                <div className="pt-2 pb-1 bg-blue-50/50 rounded-lg my-1.5 p-2 border border-blue-100">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-blue-900 mb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                      <span>관세청 CLIP 포털 세번/상품 연동 결과 ({clipSearchResults.length}건)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenClipSearch(searchQuery)}
+                      className="text-[10px] text-blue-700 hover:underline flex items-center gap-0.5 font-bold"
+                    >
+                      <span>모달에서 전체보기</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1">
+                    {clipSearchResults.map(c => (
+                      <div
+                        key={`clip-${c.hsCode}`}
+                        onClick={() => handleSelectClipCommodity(convertClipCommodityToTradeItem(c), c)}
+                        className="p-2 rounded bg-white hover:bg-blue-100/70 border border-blue-200 cursor-pointer transition flex items-center justify-between gap-2 text-left shadow-2xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] font-extrabold text-blue-900 bg-blue-100 px-1.5 py-0.2 rounded">
+                              {c.hsCode}
+                            </span>
+                            <span className="text-xs font-bold text-slate-900">{c.nameKr}</span>
+                            <span className="text-[10px] text-slate-500">({c.category})</span>
+                          </div>
+                          <p className="text-[10px] text-slate-600 truncate mt-0.5">{c.hsDescription}</p>
+                          <div className="flex items-center gap-2 mt-0.5 text-[10px]">
+                            <span className="text-slate-600">기본: <strong className="text-slate-900 font-mono">{c.baseRate}%</strong></span>
+                            <span className="text-emerald-700">WTO: <strong className="font-mono">{c.wtoRate}%</strong></span>
+                            <span className="text-indigo-700">FTA: <strong className="font-mono">{c.ftaRates.CN?.rate ?? 0}%</strong></span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectClipCommodity(convertClipCommodityToTradeItem(c), c);
+                          }}
+                          className="px-2.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded text-[11px] font-bold flex items-center gap-1 shrink-0 shadow-2xs"
+                        >
+                          <ArrowDownToLine className="w-3 h-3 text-blue-200" />
+                          <span>끌고오기</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              {/* Empty state & prompt to search in CLIP */}
+              {filteredItems.length === 0 && clipSearchResults.length === 0 && (
+                <div className="p-5 text-center space-y-2 bg-slate-50 rounded-lg my-1">
+                  <p className="text-xs font-bold text-slate-800">
+                    기본 필터에 등록되지 않은 품목입니다.
+                  </p>
+                  <p className="text-[11px] text-slate-600 max-w-md mx-auto">
+                    관세법령정보포털 CLIP(https://unipass.customs.go.kr/clip/index.do)의 세번/상품 검색을 통해 관세율표와 수입요건을 실시간 조회하여 견적기에 끌고올 수 있습니다.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenClipSearch(searchQuery)}
+                    className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition"
+                  >
+                    <Search className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>CLIP 세번·상품검색에서 '{searchQuery}' 찾아 끌고오기</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Bottom CLIP shortcut link */}
+              <div className="p-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-[11px] text-slate-600 font-medium flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-blue-600" />
+                  <span>원하는 품목이 목록에 없으면 CLIP 포털에서 즉시 검색 가능</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleOpenClipSearch(searchQuery)}
+                  className="text-xs font-bold text-blue-800 hover:text-blue-950 flex items-center gap-1 bg-white px-2.5 py-1 rounded border border-blue-300 hover:bg-blue-50 transition shadow-2xs"
+                >
+                  <Search className="w-3 h-3 text-blue-700" />
+                  <span>CLIP 세번·상품검색 열기</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -342,24 +646,39 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
             <label className="block text-xs font-bold text-slate-500 uppercase">
               [품명] (Product Description) <span className="text-rose-500">*</span>
             </label>
-            {input.itemName && (
-              liveApproval.isRegistered ? (
-                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 flex items-center gap-0.5">
-                  <Check className="w-3 h-3 text-emerald-600" />
-                  <span>26년 요건등록됨</span>
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
-                  미등록
-                </span>
-              )
-            )}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleOpenClipSearch(input.itemName)}
+                className="text-[10px] text-blue-800 hover:text-blue-950 font-bold bg-blue-50 hover:bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200 flex items-center gap-0.5 transition"
+                title="CLIP 세번·상품검색에서 품목 찾기"
+              >
+                <Search className="w-2.5 h-2.5 text-blue-700" />
+                <span>CLIP 검색</span>
+              </button>
+              {input.itemName && (
+                liveApproval.isRegistered ? (
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded border border-emerald-200 flex items-center gap-0.5">
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>26년 요건등록됨</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200">
+                    미등록
+                  </span>
+                )
+              )}
+            </div>
           </div>
           <input
             type="text"
             value={input.itemName}
-            onChange={(e) => onChangeInput({ ...input, itemName: e.target.value }, selectedItem)}
-            placeholder="품목명 입력 또는 상단 필터에서 선택"
+            onChange={(e) => {
+              const newName = e.target.value;
+              const matchingItem = TRADE_ITEMS_DATABASE.find(t => t.name.toLowerCase() === newName.toLowerCase());
+              onChangeInput({ ...input, itemName: newName }, matchingItem || selectedItem);
+            }}
+            placeholder="품목명 입력 또는 상단 필터/CLIP에서 검색"
             className="w-full border border-slate-300 rounded px-3.5 py-2 bg-slate-50 font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none text-xs sm:text-sm text-slate-900 transition"
           />
           {input.itemName && liveApproval.isRegistered && (
@@ -401,14 +720,29 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
 
         {/* 2. [HS CODE] */}
         <div>
-          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-            [HS CODE] <span className="text-rose-500">*</span>
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-slate-500 uppercase">
+              [HS CODE] <span className="text-rose-500">*</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => handleOpenClipSearch(input.hsCode || input.itemName)}
+              className="text-[10px] text-blue-800 hover:text-blue-950 font-bold bg-blue-50 hover:bg-blue-100 px-1.5 py-0.2 rounded border border-blue-200 flex items-center gap-0.5 transition"
+              title="CLIP 관세율표에서 세번 조회"
+            >
+              <Search className="w-2.5 h-2.5 text-blue-700" />
+              <span>CLIP 세번조회</span>
+            </button>
+          </div>
           <input
             type="text"
             value={input.hsCode}
-            onChange={(e) => onChangeInput({ ...input, hsCode: e.target.value }, selectedItem)}
-            placeholder="예: 2825.90-1040"
+            onChange={(e) => {
+              const newHs = e.target.value;
+              const matchingItem = TRADE_ITEMS_DATABASE.find(t => t.hsCode === newHs);
+              onChangeInput({ ...input, hsCode: newHs }, matchingItem || (selectedItem && selectedItem.hsCode === newHs ? selectedItem : undefined));
+            }}
+            placeholder="예: 8517.13-0000, 2842.31-1000, 8542.31-1000"
             className="w-full border border-slate-300 rounded px-3.5 py-2 font-mono text-blue-700 bg-blue-50 outline-none font-bold text-xs sm:text-sm transition focus:bg-white"
           />
         </div>
@@ -812,6 +1146,14 @@ export const CalculationForm: React.FC<CalculationFormProps> = ({
           )}
         </div>
       </div>
+
+      {/* 🏛️ 관세법령정보포털 CLIP 세번·상품검색 모달 */}
+      <ClipCommoditySearchModal
+        isOpen={isClipModalOpen}
+        onClose={() => setIsClipModalOpen(false)}
+        onSelectCommodity={handleSelectClipCommodity}
+        initialQuery={clipModalInitialQuery}
+      />
     </div>
   );
 };

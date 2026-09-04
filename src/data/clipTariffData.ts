@@ -523,8 +523,10 @@ export const CLIP_HS_DATABASE: Record<string, ClipTariffSchedule> = {
 /**
  * HS Code 정규화 및 관세청 CLIP 포털 관세율 스케줄 조회
  */
+import { CLIP_COMMODITIES_DATABASE } from './clipCommodities';
+
 export function getClipTariffSchedule(rawHsCode: string, fallbackName?: string): ClipTariffSchedule {
-  let schedule: ClipTariffSchedule;
+  let schedule: ClipTariffSchedule | undefined;
 
   if (!rawHsCode) {
     schedule = generateFallbackClipSchedule('2825.90-2050', fallbackName || '니켈·코발트·망간 복합수산화물');
@@ -540,10 +542,34 @@ export function getClipTariffSchedule(rawHsCode: string, fallbackName?: string):
       const dashFormatted = normalized.replace(/^(\d{4})\.(\d{2})\.(\d{4})$/, '$1.$2-$3');
       if (CLIP_HS_DATABASE[dashFormatted]) {
         schedule = CLIP_HS_DATABASE[dashFormatted];
-      } else {
-        // Chapter-based heuristic from CLIP Customs Schedule rules
-        schedule = generateFallbackClipSchedule(normalized, fallbackName);
       }
+    }
+
+    // Check in CLIP_COMMODITIES_DATABASE if not found yet
+    if (!schedule) {
+      const normDigits = cleanCode.replace(/[^0-9]/g, '');
+      const foundCommodity = CLIP_COMMODITIES_DATABASE.find(c => {
+        const cDigits = c.hsCode.replace(/[^0-9]/g, '');
+        return cDigits === normDigits || (normDigits.length >= 4 && cDigits.startsWith(normDigits.slice(0, 4)));
+      });
+
+      if (foundCommodity) {
+        schedule = {
+          hsCode: foundCommodity.hsCode,
+          nameKr: foundCommodity.nameKr,
+          nameEn: foundCommodity.nameEn,
+          baseRate: foundCommodity.baseRate,
+          wtoRate: foundCommodity.wtoRate,
+          quotaRate: foundCommodity.quotaRate,
+          ftaRates: foundCommodity.ftaRates as any,
+          clipSourceNotes: `관세청 CLIP 관세율표: 기본 ${foundCommodity.baseRate}%, WTO ${foundCommodity.wtoRate}%`
+        };
+      }
+    }
+
+    if (!schedule) {
+      // Chapter-based heuristic from CLIP Customs Schedule rules
+      schedule = generateFallbackClipSchedule(normalized, fallbackName);
     }
   }
 
@@ -561,11 +587,36 @@ export function getClipTariffSchedule(rawHsCode: string, fallbackName?: string):
 }
 
 function generateFallbackClipSchedule(hsCode: string, name?: string): ClipTariffSchedule {
-  const isMachinery = hsCode.startsWith('84') || hsCode.startsWith('85') || hsCode.startsWith('90');
-  const is38 = hsCode.startsWith('38');
+  const chapter = hsCode.replace(/[^0-9]/g, '').slice(0, 2);
+  let baseRate = 8.0;
+  let wtoRate = 5.5;
 
-  const baseRate = 8.0;
-  const wtoRate = isMachinery ? 0.0 : (is38 ? 6.5 : 5.5);
+  if (chapter === '84' || chapter === '85' || chapter === '90') {
+    baseRate = 8.0;
+    wtoRate = 0.0;
+  } else if (chapter === '28' || chapter === '29') {
+    baseRate = 5.0;
+    wtoRate = 5.5;
+  } else if (chapter === '38' || chapter === '39') {
+    baseRate = 6.5;
+    wtoRate = 6.5;
+  } else if (chapter === '22') {
+    // 주류/와인
+    baseRate = hsCode.includes('2204') ? 30.0 : 20.0;
+    wtoRate = 15.0;
+  } else if (chapter === '33') {
+    // 화장품
+    baseRate = 6.5;
+    wtoRate = 6.5;
+  } else if (chapter === '61' || chapter === '62' || chapter === '64') {
+    // 의류 및 신발
+    baseRate = 13.0;
+    wtoRate = 13.0;
+  } else if (chapter === '09') {
+    // 커피
+    baseRate = 2.0;
+    wtoRate = 2.0;
+  }
 
   return {
     hsCode,

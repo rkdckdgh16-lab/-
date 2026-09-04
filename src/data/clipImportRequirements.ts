@@ -928,10 +928,58 @@ export function getClipImportRegulations(rawHsCode: string, fallbackName?: strin
  * HS Chapter 및 세번에 따른 표준 CLIP 요건사항 Fallback 생성기
  */
 function generateFallbackClipRegulations(hsCode: string, name?: string): ClipImportRegulationData {
+  const cleanDigits = hsCode.replace(/[^0-9]/g, '');
+  const chapterNum = parseInt(cleanDigits.slice(0, 2), 10);
+  const isAgriFood = chapterNum >= 1 && chapterNum <= 24;
   const isChemical = hsCode.startsWith('28') || hsCode.startsWith('29') || hsCode.startsWith('38') || hsCode.startsWith('34');
   const isMachinery = hsCode.startsWith('84') || hsCode.startsWith('85') || hsCode.startsWith('90');
   const isElectrical = hsCode.startsWith('85') || hsCode.startsWith('90');
   const isGeneralParts = hsCode.startsWith('73') || hsCode.startsWith('40') || hsCode.startsWith('39') || hsCode.startsWith('68') || hsCode.startsWith('69');
+
+  if (isAgriFood) {
+    return {
+      hsCode,
+      nameKr: name || `농식품 및 식물·가공품 [HS ${hsCode}]`,
+      nameEn: name || 'Agricultural & Food Products',
+      isControlled: true,
+      applicableLaws: ['식물방역법', '수입식품안전관리 특별법', '식품위생법'],
+      requiredCertificates: ['식물검역증명서 (수출국 검역당국 발급)', '식약처 수입식품등의 수입신고확인증', '원산지증명서'],
+      inspectionAgency: '농림축산검역본부, 식품의약품안전처',
+      clearanceNotes: '통관 전 농림축산검역본부 식물검역 합격 및 식약처 수입식품 검사 합격필증이 교부되어야 수입신고 수리가 가능합니다.',
+      clipSourceUrl: 'https://unipass.customs.go.kr/clip/index.do',
+      customsVerifications: [
+        {
+          lawName: '식물방역법',
+          authority: '농림축산검역본부장',
+          requirementDetail: '수출국 정부기관 발행 식물검역증명서를 첨부하여 식물검역관의 합격을 필한 물품.',
+          documentName: '식물검역증명서',
+          electronicNoticeCode: 'QIA'
+        },
+        {
+          lawName: '수입식품안전관리 특별법',
+          authority: '식품의약품안전처장',
+          requirementDetail: '지방식품의약품안전청장에게 수입신고하여 검사합격을 받은 물품 (전자문서 통보).',
+          documentName: '수입식품등의 수입신고확인증',
+          electronicNoticeCode: 'MFDS'
+        }
+      ],
+      exportImportNotices: [
+        {
+          category: '수입승인대상',
+          authority: '농림축산식품부, 식품의약품안전처',
+          content: '국내 생태계 병해충 유입 방지 및 식품 안전성 검사 대상 물품.'
+        }
+      ],
+      integratedNotices: [
+        {
+          lawName: '식물방역법 / 수입식품안전관리 특별법',
+          authority: '농림축산식품부 / 식약처',
+          requirements: '수입 전 식약처 사전신고 및 검역본부 병해충 검역 합격.',
+          procedure: '수출국 검역증 발급 ➔ 국내 도착 후 식약처/검역본부 정밀검사 ➔ 세관 통관.'
+        }
+      ]
+    };
+  }
 
   if (isChemical) {
     return {
